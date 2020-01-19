@@ -1,10 +1,12 @@
+// Package env contains the Marshal function for shell environment variables.
+// It looks for fields marked with the tag `env:"NAME"` and exports thier value as a shell variable NAME.
+// Supported types that can be tagged with `env:"NAME"`: primitive types, structs and pointers to those types.
 package env
 
 import (
-	"runtime"
-	"reflect"
 	"bytes"
 	"fmt"
+	"reflect"
 	"strings"
 )
 
@@ -13,8 +15,10 @@ type encodeState struct {
 	visited map[reflect.Value]bool
 }
 
+// Marshal looks for fields marked with the tag `env:"NAME"` and exports thier value as a shell variable NAME.
+// Supported types that can be tagged with `env:"NAME"`: primitive types, structs and pointers to those types.
 func Marshal(v interface{}) ([]byte, error) {
-	e := &encodeState{visited:make(map[reflect.Value]bool)}
+	e := &encodeState{visited: make(map[reflect.Value]bool)}
 	err := e.marshal(v)
 	if err != nil {
 		return nil, err
@@ -25,13 +29,11 @@ func Marshal(v interface{}) ([]byte, error) {
 func (e *encodeState) marshal(v interface{}) (err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			if _, ok := r.(runtime.Error); ok {
+			if e, ok := r.(UnsupportedTypeError); ok {
+				err = e
+			} else {
 				panic(r)
 			}
-			if s, ok := r.(string); ok {
-				panic(s)
-			}
-			err = r.(error)
 		}
 	}()
 	e.reflectValue(reflect.ValueOf(v), "", false)
@@ -64,38 +66,40 @@ func (e *encodeState) reflectValue(v reflect.Value, tag string, omitEmpty bool) 
 		}
 	case reflect.Ptr, reflect.Interface:
 		if !v.IsNil() {
-			e.reflectValue(v.Elem(), "", false)
+			e.reflectValue(v.Elem(), tag, false)
 		}
 	case reflect.Struct:
 		for i := 0; i < v.Type().NumField(); i++ {
 			field := v.Field(i)
-			tag := v.Type().Field(i).Tag.Get("env")
-			name, opts := parseTag(tag)
+			envTag := v.Type().Field(i).Tag.Get("env")
+			name, opts := parseTag(envTag)
+			if tag != "" && name != "" {
+				name = tag + "_" + name
+			}
 			e.reflectValue(field, name, opts.Contains("omitempty"))
 		}
-	case reflect.Array:
-		if tag != "" && !(omitEmpty && isEmptyValue(v)) {
-			panic(UnsupportedTypeError{v.Type()})
-		}
-	case reflect.Slice:
-		if tag != "" && !(omitEmpty && isEmptyValue(v)) {
-			panic(UnsupportedTypeError{v.Type()})
-		}
-	case reflect.Map:
-		if tag != "" && !(omitEmpty && isEmptyValue(v)) {
-			panic(UnsupportedTypeError{v.Type()})
-		}
 	default:
-		panic(UnsupportedTypeError{v.Type()})
+		if tag != "" && !(omitEmpty && isEmptyValue(v)) {
+			panic(UnsupportedTypeError{v.Type()})
+		}
 	}
 }
 
+// UnsupportedTypeError is used when an unsupported type is marked to be marshalled.
+// Currenlty only primitive types and structs (and pointers to them) are supported.
 type UnsupportedTypeError struct {
+	// Type the type that is not supported.
 	Type reflect.Type
 }
 
-func (e *UnsupportedTypeError) Error() string {
+// String returns a string representation of the unsuppported type error.
+func (e UnsupportedTypeError) String() string {
 	return "env: unsupported type: " + e.Type.String()
+}
+
+// Error returns a string representation of the unsuppported type error.
+func (e UnsupportedTypeError) Error() string {
+	return e.String()
 }
 
 type tagOptions string
