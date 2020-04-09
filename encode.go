@@ -27,22 +27,12 @@ func Marshal(v interface{}) ([]byte, error) {
 }
 
 func (e *encodeState) marshal(v interface{}) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			if e, ok := r.(UnsupportedTypeError); ok {
-				err = e
-			} else {
-				panic(r)
-			}
-		}
-	}()
-	e.reflectValue(reflect.ValueOf(v), "", false)
-	return nil
+	return e.visitValue(reflect.ValueOf(v), "", false)
 }
 
-func (e *encodeState) reflectValue(v reflect.Value, tag string, omitEmpty bool) {
+func (e *encodeState) visitValue(v reflect.Value, tag string, omitEmpty bool) error {
 	if !v.IsValid() || e.visited[v] {
-		return
+		return nil
 	}
 
 	e.visited[v] = true
@@ -66,35 +56,37 @@ func (e *encodeState) reflectValue(v reflect.Value, tag string, omitEmpty bool) 
 		}
 	case reflect.Ptr, reflect.Interface:
 		if !v.IsNil() {
-			e.reflectValue(v.Elem(), tag, false)
+			return e.visitValue(v.Elem(), tag, false)
 		}
 	case reflect.Struct:
 		for i := 0; i < v.Type().NumField(); i++ {
 			field := v.Field(i)
 			envTag := v.Type().Field(i).Tag.Get("env")
 			name, opts := parseTag(envTag)
-			if tag != "" && name != "" {
-				name = tag + "_" + name
+			if tag != "" && name == "" {
+				name = tag + "_" + v.Type().Field(i).Name
 			}
-			e.reflectValue(field, name, opts.Contains("omitempty"))
+			err := e.visitValue(field, name, opts.Contains("omitempty"))
+			if err != nil {
+				return fmt.Errorf("visiting %v: %w", v.Type().Field(i).Name, err)
+			}
 		}
 	default:
 		if tag != "" && !(omitEmpty && isEmptyValue(v)) {
-			panic(UnsupportedTypeError{v.Type()})
+			return UnsupportedTypeError(v.Type().String())
 		}
 	}
+
+	return nil
 }
 
 // UnsupportedTypeError is used when an unsupported type is marked to be marshalled.
 // Currenlty only primitive types and structs (and pointers to them) are supported.
-type UnsupportedTypeError struct {
-	// Type the type that is not supported.
-	Type reflect.Type
-}
+type UnsupportedTypeError string
 
 // String returns a string representation of the unsuppported type error.
 func (e UnsupportedTypeError) String() string {
-	return "env: unsupported type: " + e.Type.String()
+	return "unsupported type: " + string(e)
 }
 
 // Error returns a string representation of the unsuppported type error.

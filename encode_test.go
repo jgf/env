@@ -1,7 +1,7 @@
 package env_test
 
 import (
-	"reflect"
+	"errors"
 	"testing"
 
 	"github.com/jgf/env"
@@ -9,6 +9,8 @@ import (
 
 type sA struct {
 	A string `env:"MYVAR"`
+	C string
+	D int `env:",omitempty"`
 }
 
 type sB struct {
@@ -90,6 +92,7 @@ func TestMultiLayeredStruct(t *testing.T) {
 	}{
 		S1: sA{
 			A: "hallo",
+			C: "welt",
 		},
 		S2: ssB{
 			S: sB{
@@ -103,7 +106,7 @@ func TestMultiLayeredStruct(t *testing.T) {
 	if err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
-	expected := "export MYVAR='hallo'\nexport B='4711'\n"
+	expected := "export MYVAR='hallo'\nexport S1_C='welt'\nexport B='4711'\n"
 	if string(data) != expected {
 		t.Errorf("marshalled data does not match expectation:\n%v\n%v", string(data), expected)
 	}
@@ -119,8 +122,8 @@ func TestErrorUnsupportedTypeSlice(t *testing.T) {
 	data, err := env.Marshal(simple)
 	if err == nil {
 		t.Errorf("expected error did not occur")
-	} else if _, ok := err.(env.UnsupportedTypeError); !ok {
-		t.Errorf("expected and env.UnsupportedTypeError. got: %v", reflect.TypeOf(err))
+	} else if !errors.Is(err, env.UnsupportedTypeError("[]string")) {
+		t.Errorf("unexpected error: %v", err)
 	}
 
 	if data != nil {
@@ -138,8 +141,8 @@ func TestErrorUnsupportedTypeArray(t *testing.T) {
 	data, err := env.Marshal(simple)
 	if err == nil {
 		t.Errorf("expected error did not occur")
-	} else if _, ok := err.(env.UnsupportedTypeError); !ok {
-		t.Errorf("expected and env.UnsupportedTypeError. got: %v", reflect.TypeOf(err))
+	} else if !errors.Is(err, env.UnsupportedTypeError("[2]string")) {
+		t.Errorf("unexpected error: %v", err)
 	}
 
 	if data != nil {
@@ -157,8 +160,8 @@ func TestErrorUnsupportedTypeMap(t *testing.T) {
 	data, err := env.Marshal(simple)
 	if err == nil {
 		t.Errorf("expected error did not occur")
-	} else if _, ok := err.(env.UnsupportedTypeError); !ok {
-		t.Errorf("expected and env.UnsupportedTypeError. got: %v", reflect.TypeOf(err))
+	} else if !errors.Is(err, env.UnsupportedTypeError("map[string]int")) {
+		t.Errorf("unexpected error: %v", err)
 	}
 
 	if data != nil {
@@ -176,8 +179,8 @@ func TestErrorUnsupportedTypeChan(t *testing.T) {
 	data, err := env.Marshal(simple)
 	if err == nil {
 		t.Errorf("expected error did not occur")
-	} else if _, ok := err.(env.UnsupportedTypeError); !ok {
-		t.Errorf("expected and env.UnsupportedTypeError. got: %v", reflect.TypeOf(err))
+	} else if !errors.Is(err, env.UnsupportedTypeError("chan int")) {
+		t.Errorf("unexpected error: %v", err)
 	}
 
 	if data != nil {
